@@ -1,0 +1,24 @@
+{
+  "name": "socialmate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SocialMate - your social media mate",
+  "main": "app/main.mjs",
+  "scripts": {
+    "app": "electron .",
+    "server": "node src/server.mjs",
+    "status": "node src/cli.mjs status",
+    "pool": "node src/cli.mjs pool",
+    "post": "node src/cli.mjs post",
+    "start": "node src/run.mjs",
+    "once": "node src/run.mjs --once",
+    "dryrun": "node scripts/dryrun.mjs",
+    "test:llm": "node scripts/test-llm.mjs",
+    "test:perceive": "node scripts/test-perceive.mjs",
+    "test:humanize": "node scripts/test-humanize.mjs",
+    "copy-profile": "node scripts/copy-edge-profile.mjs"
+  },
+  "dependencies": { "playwright": "^1.53.0" },
+  "devDependencies": { "electron": "^33.2.0" }
+}

@@ -1,0 +1,14 @@
+node_modules/
+edge-profile/
+shots/
+log.txt
+.dispatch/
+queue/drafts.json
+queue/failed.json
+queue/seen.json
+queue/seen-replies.json
+queue/my-posts.json
+queue/voice-profile.json
+queue/posts.json
+app/.vite/
+*.log

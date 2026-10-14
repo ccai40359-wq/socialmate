@@ -1,5 +1,7 @@
 # SocialMate — 自媒体人的 media-agent（推特 / X 版）
 
+<p align="center"><img src="docs/assets/cover-banner.png" alt="SocialMate" width="100%"></p>
+
 > **Your social media mate — it reads, it thinks, it posts.**
 >
 > 一个跑在你自己电脑上的社媒运营 Agent：它盯热点、按你的语气写内容、给你审核，

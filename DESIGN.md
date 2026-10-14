@@ -321,15 +321,19 @@ LLMProvider.complete(messages, { json, maxTokens }) -> text
 - 不做指纹伪造：不需要 `navigator.webdriver` 覆盖等「伪装」手段
 - 唯一注意：单独用一份 Profile 副本，避免与用户日常窗口争抢会话
 
-### 9.2 行为层（**待实现，最高优先级**）
+### 9.2 行为层（✅ 已实现，落点 `src/humanize.mjs` + `src/run.mjs` 调度）
 
-- 零碎分钟调度 + 随机抖动（⚠️ 当前 `config.json` 是 `activeHours 0-24`、固定目标，
-  需改为夜间静默 + 零碎分钟）
-- 打字逐字符、速度 30–100ms 随机；避免 `insertText` 一次性灌入
-- 操作前预热滚动；动作间「思考停顿」
+- 零碎分钟调度 + 随机抖动：发布时刻落在 `OFF_MINUTES = [3,7,11,17,23,33,41,47,51,53]`，
+  再叠加秒级抖动（`schedule.jitterSeconds`，上限 120s）；不再整点准点、不再共享同一时间戳
+- 打字逐字符、速度 30–100ms 随机（CJK ×1.3）；避免 `insertText` 一次性灌入
+  （`typeHuman` 失败时才降级到 `insertText`，并写日志）
+- 操作前预热滚动（3–5 次）+ 动作间「思考停顿」（2–5s 随机）
 - 偶尔加入非发布动作（浏览/点赞），让账号行为像人
-- 鼠标移动用带步进的轨迹，而非瞬移点击
-- 采集与发布分属不同会话、不同时段
+- 鼠标移动用 smoothstep 缓动、8–20 步轨迹（±3px 抖动），而非瞬移点击（`moveHuman` / `clickHuman`）
+- 采集与发布分属不同轮次（I2 隔离，`run.mjs`），绝不在同一轮既抓又发
+- 夜间静默：`activeHours`（默认 8–23 点）之外不动作
+- 撞上风控：`safety.detectBlock` 识别验证码/锁定/限流/掉登录/动作被拦 → 立即 `paused=true`
+  + 截图留证（不等同于继续重试）
 
 ### 9.3 内容层
 

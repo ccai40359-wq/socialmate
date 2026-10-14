@@ -47,3 +47,6 @@ _recover/
 versions/
 # 用户自己的运行配置（源码只带 config.example.json）
 config.json
+
+# 本地临时脚本 / 一次性驱动
+_sm_*

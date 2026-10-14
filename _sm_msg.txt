@@ -1,7 +1,0 @@
-docs: add generated brand assets (cover, social preview, app icon)
-
-- docs/assets/cover-banner.png : README hero (2000x1125, 16:9)
-- docs/assets/social-preview.png : GitHub social preview (1280x640), also set
-  on the repo via the API
-- docs/assets/app-icon-1024.png / app-icon.png / icon.ico : high-res icon set
-- README now shows the banner at the top

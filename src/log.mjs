@@ -1,7 +1,8 @@
 import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const logFile = resolve(process.cwd(), 'log.txt');
+const DATA_ROOT = process.env.SOCIALMATE_DATA_DIR || process.cwd();
+const logFile = resolve(DATA_ROOT, 'log.txt');
 
 export function nowLocal() {
   return new Date().toLocaleString('zh-CN', {

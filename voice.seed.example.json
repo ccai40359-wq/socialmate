@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to voice.seed.json and describe YOUR voice. build-voice-profile.mjs reads it; the sample lines it injects are still measured from your own collected posts. voice.seed.json is git-ignored.",
+  "handle": "your_handle",
+  "displayName": "你的昵称",
+  "identity": ["你是谁 / 做什么", "你的领域或爱好"],
+  "language": "中文为主，夹少量英文词（如 prompt / token）",
+  "length": { "average": 19, "rule": "绝大多数 5-25 字，一句话说完；长内容最多 2-3 行" },
+  "tone": ["口语、直接", "可以自嘲、玩梗", "有观点、敢下判断"],
+  "openers": ["兄弟们", "朋友们"],
+  "closers": ["！", "吧"],
+  "never": ["不用书面语", "不写营销文案腔", "不自夸"],
+  "topics": ["AI 模型/工具动态", "AI 编程与 agent 工作流"]
+}

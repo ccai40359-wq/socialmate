@@ -3,6 +3,7 @@ edge-profile/
 shots/
 log.txt
 .dispatch/
+secrets.json
 queue/drafts.json
 queue/failed.json
 queue/seen.json
@@ -10,5 +11,39 @@ queue/seen-replies.json
 queue/my-posts.json
 queue/voice-profile.json
 queue/posts.json
+queue/history.json
+queue/candidates.json
+control.json
 app/.vite/
 *.log
+run.pid
+.env
+cache/
+queue/feedback.json
+
+# electron-builder 输出
+dist/
+
+# ---- 运行态与本地数据（不进仓库）----
+state.json
+provider.json
+voice.seed.json
+# 采集/发布缓存
+queue/internal-links.json
+queue/follow-seen.json
+queue/others-reply-seen.json
+queue/seen-likes.json
+queue/pending-publish.json
+queue/leadgen-status.json
+queue/stats.json
+queue/leadgen/
+
+# ---- 本地备份 / 事故现场 / 旧版本产物（绝不提交）----
+_sm_local_*.json
+config.backup-*.json
+config.json.bak-*
+_incident/
+_recover/
+versions/
+# 用户自己的运行配置（源码只带 config.example.json）
+config.json

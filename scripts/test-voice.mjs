@@ -1,0 +1,11 @@
+import { generatePostText, generateQuoteComment, generateReply } from '../src/voice.mjs';
+const t0 = Date.now();
+const post = await generatePostText({ title: 'OpenAI 发布 GPT-6 Luna，主打高并发低成本', summary: '新模型面向大规模任务批处理，每百万 token 成本下降 60%。' });
+console.log('post  ->', JSON.stringify(post), `(${Date.now()-t0}ms)`);
+const q = await generateQuoteComment({ title: 'Anthropic 把推理搬到云端 VM', summary: 'Cowork 改为云端运行模型推理与虚拟机。' });
+console.log('quote ->', JSON.stringify(q));
+const r = await generateReply({ text: '这个真的能自动发吗？', author: 'someone' });
+console.log('reply ->', JSON.stringify(r));
+const bad = [post, q, r].filter((x) => !x);
+console.log(bad.length ? 'FAIL: empty content' : 'PASS: all three generated');
+process.exit(bad.length ? 1 : 0);

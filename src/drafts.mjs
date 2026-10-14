@@ -1,19 +1,29 @@
 // Draft queue for human-review mode: actions that are not auto-published land
 // here and can be approved or rejected from the CLI.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 
+const DATA_ROOT = process.env.SOCIALMATE_DATA_DIR || process.cwd();
 const DEFAULT = 'queue/drafts.json';
 
 export function loadDrafts(file = DEFAULT) {
-  try { return JSON.parse(readFileSync(resolve(file), 'utf8')); }
+  try { return JSON.parse(readFileSync(joinData(file), 'utf8')); }
   catch { return []; }
 }
 
+// Atomic write: the daemon appends drafts while the UI removes them, so a
+// half-written file would be read back as a corrupt queue. Write to a temp
+// file and rename over the target.
 export function saveDrafts(list, file = DEFAULT) {
-  const abs = resolve(file);
+  const abs = joinData(file);
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, JSON.stringify(list, null, 2), 'utf8');
+  const tmp = abs + '.tmp-' + process.pid;
+  writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf8');
+  renameSync(tmp, abs);
+}
+
+function joinData(p) {
+  return resolve(DATA_ROOT, p);
 }
 
 export function addDraft(draft, file = DEFAULT) {

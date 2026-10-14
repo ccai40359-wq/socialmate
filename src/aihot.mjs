@@ -1,9 +1,17 @@
 // Thin AIHOT client shared by all modules.
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+const DATA_ROOT = process.env.SOCIALMATE_DATA_DIR || process.cwd();
+
 export function loadConfig() {
-  return JSON.parse(readFileSync(resolve('config.json'), 'utf8'));
+  // config.json is the user's own runtime config and is git-ignored. A fresh
+  // checkout (or a first launch with no config yet) falls back to the committed
+  // template so the app can always start; the desktop shell also seeds a
+  // writable config.json from this template on first run.
+  const own = resolve(DATA_ROOT, 'config.json');
+  if (existsSync(own)) return JSON.parse(readFileSync(own, 'utf8'));
+  return JSON.parse(readFileSync(resolve(DATA_ROOT, 'config.example.json'), 'utf8'));
 }
 
 export async function aihotGet(cfg, path) {

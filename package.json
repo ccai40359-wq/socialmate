@@ -1,6 +1,6 @@
 {
   "name": "socialmate",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "SocialMate - your social media mate",
@@ -16,9 +16,70 @@
     "dryrun": "node scripts/dryrun.mjs",
     "test:llm": "node scripts/test-llm.mjs",
     "test:perceive": "node scripts/test-perceive.mjs",
+    "test:rank": "node scripts/test-rank.mjs",
     "test:humanize": "node scripts/test-humanize.mjs",
-    "copy-profile": "node scripts/copy-edge-profile.mjs"
+    "test:voice": "node scripts/test-voice.mjs",
+    "test:server": "node scripts/test-server.mjs",
+    "test:daemon": "node scripts/test-daemon.mjs",
+    "test:gate": "node scripts/test-gate-approve.mjs",
+    "test": "node scripts/integration-check.mjs",
+    "shot": "node scripts/shot-ui.mjs",
+    "shot:electron": "node scripts/shot-electron.mjs",
+    "shot:gate": "node scripts/shot-gate-refusal.mjs",
+    "copy-profile": "node scripts/copy-edge-profile.mjs",
+    "dist": "electron-builder --win",
+    "test:onboarding": "node scripts/test-onboarding.mjs",
+    "shot:onboarding": "node scripts/shot-onboarding.mjs",
+    "verify:packaged": "node scripts/verify-packaged-boot.mjs"
   },
-  "dependencies": { "playwright": "^1.53.0" },
-  "devDependencies": { "electron": "^33.2.0" }
+  "dependencies": {
+    "playwright": "^1.53.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.socialmate.app",
+    "productName": "SocialMate",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "app/**/*",
+      "src/**/*",
+      "package.json",
+      "config.example.json",
+      "!secrets.json",
+      "!.env",
+      "!edge-profile/**",
+      "!log.txt",
+      "!queue/**",
+      "!state.json",
+      "!control.json",
+      "!cache/**",
+      "!shots/**",
+      "!dist/**",
+      "!scripts/**",
+      "!run.pid",
+      "!provider.json",
+      "!src/leadgen/**",
+      "!src/leads-api.mjs"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "app/renderer/icon.png"
+    },
+    "portable": {
+      "artifactName": "SocialMate-${version}-portable.${ext}"
+    },
+    "npmRebuild": false
+  }
 }

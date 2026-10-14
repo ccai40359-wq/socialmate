@@ -1,0 +1,137 @@
+{
+  "profileDir": "edge-profile",
+  "cdpPort": 9222,
+  "edgePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "aihotUserAgent": "aihot-skill/2.0.0 (+https://aihot.news/aihot-skill/)",
+  "postPrefix": "AI 快讯",
+  "autoMode": "review",
+  "dailyTarget": 20,
+  "minGapMinutes": 30,
+  "maxGapMinutes": 50,
+  "quoteRatio": 0.3,
+  "activeHours": {
+    "start": 8,
+    "end": 23
+  },
+  "replyScan": {
+    "intervalMinutes": 45,
+    "maxAgeHours": 48,
+    "maxPerRound": 3
+  },
+  "quoteSearch": {
+    "minLikes": 15,
+    "maxKeywords": 3,
+    "maxScrolls": 3
+  },
+  "collect": {
+    "intervalMinutes": 30
+  },
+  "stateFile": "state.json",
+  "seenFile": "queue/seen.json",
+  "seenRepliesFile": "queue/seen-replies.json",
+  "othersReplySeenFile": "queue/others-reply-seen.json",
+  "seenLikesFile": "queue/seen-likes.json",
+  "failedFile": "queue/failed.json",
+  "logFile": "log.txt",
+  "screenShotDir": "shots",
+  "voiceModel": "deepseek/deepseek-v4.1-flash",
+  "voiceEnabled": true,
+  "jitter": {
+    "min": 0.7,
+    "max": 1.3
+  },
+  "museRatio": 0.05,
+  "othersReply": {
+    "maxPerRound": 8
+  },
+  "topicSeeds": [
+    "artificial intelligence",
+    "OpenAI",
+    "Anthropic",
+    "LLM benchmark",
+    "AI agent",
+    "大模型"
+  ],
+  "preferredAuthors": [],
+  "authorBoost": 20,
+  "laneRules": {
+    "growthNeverQuote": true,
+    "growthNeverMuse": true,
+    "replyPrefersGrowth": true
+  },
+  "growthFollow": {
+    "maxPerRound": 6,
+    "maxFollowers": 10000,
+    "maxPosts": 3,
+    "maxPerPost": 8,
+    "maxNotifScrolls": 6
+  },
+  "schedule": {
+    "offMinutesOnly": false,
+    "maxSnapMinutes": 2,
+    "jitterSeconds": 120
+  },
+  "topicPostRequiresSource": true,
+  "features": {
+    "post": true,
+    "quote": true,
+    "muse": true,
+    "reply": true,
+    "like": true,
+    "browse": false,
+    "othersReply": true,
+    "follow": false,
+    "followBack": false
+  },
+  "browse": {
+    "minutes": 3,
+    "maxScrolls": 8,
+    "likeWhileBrowsing": true
+  },
+  "safety": {
+    "allowPolitics": false,
+    "allowFinance": false
+  },
+  "humanize": {
+    "enabled": true,
+    "typeDelayMin": 30,
+    "typeDelayMax": 100
+  },
+  "perceive": {
+    "minLikes": 10,
+    "preferAiTopics": true
+  },
+  "gate": {
+    "maxLength": 700,
+    "minLength": 8,
+    "maxSimilarity": 0.85,
+    "maxLinkRatio": 0.95,
+    "perKind": {
+      "postDailyMax": 8,
+      "quoteDailyMax": 7,
+      "museDailyMax": 5,
+      "replyDailyMax": 10,
+      "engageDailyMax": 20,
+      "engageCooldownMinutes": 20,
+      "engagePerRound": 5,
+      "othersReplyDailyMax": 40,
+      "browseDailyMax": 3,
+      "postCooldownMinutes": 30,
+      "quoteCooldownMinutes": 30,
+      "othersReplyCooldownMinutes": 0,
+      "browseCooldownMinutes": 60,
+      "followDailyMax": 200,
+      "followCooldownMinutes": 2,
+      "followBackDailyMax": 100,
+      "followBackCooldownMinutes": 1
+    }
+  },
+  "leadgen": {
+    "maxPostsPerKeyword": 20,
+    "maxKeywordsPerPlatform": 6,
+    "keywordGapSecMin": 20,
+    "keywordGapSecMax": 60,
+    "fetchProfileTimeoutMs": 20000,
+    "keywordsExtra": []
+  }
+}

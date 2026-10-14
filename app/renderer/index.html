@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: https://pbs.twimg.com https://*.twimg.com" />
+<title>SocialMate</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><img src="logo.png" alt="SocialMate" /></div>
+      <div class="brand-text">
+        <strong>SocialMate</strong>
+        <span id="brandSub">社媒运营 Agent</span>
+      </div>
+    </div>
+
+    <div class="account" id="account">
+      <div class="avatar" id="avatar"><img id="avatarImg" alt="" /><span id="avatarInitial">S</span></div>
+      <div class="account-text">
+        <strong id="acctName">加载中…</strong>
+        <span id="acctHandle">—</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button class="nav-item is-active" data-page="dashboard"><span class="ni">◧</span>仪表盘</button>
+      <button class="nav-item" data-page="queue"><span class="ni">≡</span>队列<span class="badge" id="navQueueBadge" hidden>0</span></button>
+      <button class="nav-item" data-page="model"><span class="ni">◇</span>模型</button>
+      <button class="nav-item" data-page="settings"><span class="ni">⚙</span>设置</button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="daemon-pill" id="daemonPill"><span class="dot"></span><span id="daemonText">未知</span></div>
+      <div class="version">SocialMate v0.1.5</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1 id="pageTitle">仪表盘</h1>
+      <div class="topbar-right">
+        <span class="mode-chip" id="modeChip">审核</span>
+        <button class="pause-btn" id="pauseBtn" aria-pressed="false">
+          <span class="pause-ico">❙❙</span><span id="pauseLabel">暂停</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="error-band" id="errorBand" hidden>
+      <span id="errorText"></span>
+      <button class="btn tiny" id="errorRetry">重试</button>
+      <button class="btn tiny ghost" id="errorClose">关闭</button>
+    </div>
+
+    <section class="page" id="page-dashboard">
+      <div class="grid-6" id="statGrid">
+        <div class="card stat"><span class="k">今日发布（今天发出几条）</span><span class="v mono" id="stPosts">—</span><span class="sub" id="stPostsSub"></span></div>
+        <div class="card stat"><span class="k">今日引用（今天引用别人几条）</span><span class="v mono" id="stQuotes">—</span><span class="sub" id="stQuotesSub"></span></div>
+        <div class="card stat"><span class="k">今日回复（今天回复评论几条）</span><span class="v mono" id="stReplies">—</span><span class="sub" id="stRepliesSub"></span></div>
+        <div class="card stat"><span class="k">今日关注（今天关注了几个蓝V）</span><span class="v mono" id="stFollows">—</span><span class="sub" id="stFollowsSub"></span></div>
+        <div class="card stat"><span class="k">今日互动（去别人评论区留言几条）</span><span class="v mono" id="stOthers">—</span><span class="sub" id="stOthersSub">含涨粉/回关顺带留言</span></div>
+        <div class="card stat"><span class="k">待审草稿（等你审核几条）</span><span class="v mono" id="stDrafts">—</span><span class="sub" id="stDraftsSub"></span></div>
+      </div>
+
+      <div class="card act-card">
+        <div class="card-head">
+          <h2>互动 / 手动执行</h2>
+          <span class="act-status" id="actStatus"></span>
+        </div>
+        <div class="hint">上面 3 个按钮（采集热点 / 点个赞 / 刷一刷）只读不发布，点下去立刻执行；下面 4 个按钮（回复评论区 / 互动别人 / 涨粉 / 发一条）在「审核」模式下只生成草稿放进队列，不会真的发出去，切到「全自动」才会直接发布。悬停每个按钮可看一句人话解释。</div>
+        <div class="act-grid">
+          <button class="btn act-btn" id="actCollect" title="去 AI 热点、X 趋势和搜索里抓一圈新素材，放进内容池。只读，不会发布任何东西。">采集热点</button>
+          <button class="btn act-btn" id="actLike" title="给备选素材里的人点几个赞，只点赞不发言，也不会发布内容。">点个赞</button>
+          <button class="btn act-btn" id="actBrowse" title="像真人一样刷一遍时间线，顺便点几个赞。只读，不发布。">刷一刷</button>
+          <button class="btn act-btn danger" id="actReply" title="去回复你自己帖子下面的评论。审核模式下只写好草稿等你放行。">回复评论区</button>
+          <button class="btn act-btn danger" id="actOthers" title="去你互关朋友的评论区留言互动。审核模式下只写好草稿等你放行。">互动别人</button>
+          <button class="btn act-btn danger" id="actFollow" title="去关注粉丝数 1 万以内的蓝V账号，并去他们帖子下互动，帮你涨粉。审核模式下只写草稿。">涨粉</button>
+          <button class="btn act-btn danger" id="actContent" title="马上写一条内容。审核模式下只写好草稿不发，全自动模式下才会直接发布。">发一条</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>运行状态</h2></div>
+          <div class="run-row"><span class="dot" id="runDot"></span><span id="runText">—</span></div>
+          <div class="kv"><span>下一次动作</span><b class="mono" id="nextAction">—</b></div><div class="hint tight">下一次动作：它下一次大约什么时候动（这个是等它自动干活的时间点）。</div>
+          <div class="kv"><span>今天进度</span><b class="mono" id="progressText">—</b></div>
+          <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="btn-row">
+            <button class="btn" id="daemonStart" title="点一下，它就开始按你的设置自动干活（采集、写草稿、发内容都按你设的模式来）。">启动守护进程</button>
+            <button class="btn ghost" id="daemonStop" title="让它停下来：当前这轮跑完后就不再产生新东西，已排队的内容不受影响。">停止</button>
+            <button class="btn ghost" id="runOnce" title="立即执行一轮：只采集素材并入池、写好草稿放进队列，绝不发布任何内容，适合想马上看效果的人。">立即执行一次</button>
+          </div>
+        </div>
+
+        <div class="card" id="statsCard">
+          <div class="card-head"><h2>今日读取</h2></div>
+          <div class="kv"><span>已读取（今天看了多少条素材）</span><b class="mono" id="stRead">—</b></div>
+          <div class="kv"><span>入池（通过筛选留下的）</span><b class="mono" id="stKept">—</b></div>
+          <div class="kv"><span>丢弃（不合格丢掉的）</span><b class="mono" id="stDropped">—</b></div>
+          <div class="kv"><span>丢弃原因 Top3（主要为什么丢掉）</span><b class="mono" id="stDropReasons">—</b></div>
+          <div class="kv"><span>来源分布（分别从哪儿来的）</span><b class="mono" id="stBySource">—</b></div>
+          <div class="hint">下面时间线是最近 10 轮的情况；上面的数字是全天加起来的总数。</div>
+          <div id="statsTimeline" class="stats-timeline"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>内容池</h2>
+            <button class="btn tiny ghost" id="poolRefresh">刷新</button>
+          </div>
+          <div class="pool-num mono" id="poolTotal">—</div>
+          <div class="kv"><span>带 X 帖子链接</span><b class="mono" id="poolWithX">—</b></div>
+          <div class="hint">素材从 AIHOT 热点、X 趋势和 X 搜索抓来，去掉重复的以后，按分数从高到低排队，分数越高越优先写。</div>
+        </div>
+      </div>
+
+      <div class="card activity-card">
+        <div class="card-head">
+          <h2>它现在在做什么</h2>
+          <span class="hint">每 5 秒刷新</span>
+        </div>
+        <div class="now-band" id="nowBand">
+          <span class="now-dot" id="nowDot"></span>
+          <div class="now-text">
+            <b id="nowTitle">正在读取…</b>
+            <span id="nowDetail"></span>
+          </div>
+        </div>
+        <div class="activity-feed" id="activityFeed"></div>
+        <div class="activity-tip">这里每一行都是它真正做过的事（发了帖、写了草稿、点了赞之类的）。它干活中间的一堆技术细节不会出现在这里；想看原始记录，请往下翻「技术日志」。</div>
+      </div>
+      <div class="card logs-card">
+        <div class="card-head">
+          <h2>技术日志</h2>
+          <span class="hint" id="logHint">这里是给技术排查用的原始记录，普通人一般不用看，每 5 秒刷新一次。</span>
+        </div>
+        <pre class="logs mono" id="logs"></pre>
+      </div>
+    </section>
+
+    <section class="page" id="page-queue" hidden>
+      <div class="queue-head">
+        <div class="queue-count"><b class="mono" id="queueCount">0</b> 条待审（等你审核的草稿）</div>
+        <button class="btn danger" id="approveAll">全部发布</button>
+      </div>
+      <div id="publishingNow" hidden></div>
+      <div class="card" id="publishedCard" hidden>
+        <div class="card-head"><h2>最近发布</h2><span class="hint" id="publishedHint">你在队列里点「发布」、或全自动模式下它直接发出去的内容，都会列在这里</span></div>
+        <div class="activity-feed" id="publishedFeed"></div>
+      </div>
+      <div id="queueBody"></div>
+    </section>
+
+    <section class="page" id="page-model" hidden>
+      <div class="card form-card">
+        <div class="card-head"><h2>模型接入</h2></div>
+        <label class="field"><span>协议</span><span class="help">接口格式，就像两台机器说话用的「方言」。默认选「OpenAI 兼容」就行，一般不用改。</span>
+          <select id="pvProtocol">
+            <option value="openai">OpenAI 兼容</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai-responses">OpenAI Responses</option>
+          </select>
+        </label>
+        <label class="field"><span>Base URL</span><span class="help">模型服务的地址，问你的模型服务商要，比如 https://api.example.com/v1。</span>
+          <input id="pvBaseURL" type="text" spellcheck="false" placeholder="https://api.example.com/v1" />
+        </label>
+        <label class="field"><span>API Key</span><span class="help">密钥，相当于模型服务的「钥匙」，只存在你本机，不会上传。</span>
+          <input id="pvApiKey" type="password" spellcheck="false" placeholder="未配置" />
+        </label>
+        <label class="field"><span>主模型</span><span class="help">写内容用的模型，替你想标题、写帖子和回复的那个。</span>
+          <input id="pvModel" type="text" spellcheck="false" placeholder="deepseek/deepseek-v4.1-flash" />
+        </label>
+        <label class="field"><span>廉价模型</span><span class="help">给素材打分排顺序用的便宜模型，可以留空（留空就用主模型顶替）。</span>
+          <input id="pvCheapModel" type="text" spellcheck="false" placeholder="用于打分排序，可留空" />
+        </label>
+        <div class="btn-row">
+          <button class="btn" id="pvSave">保存</button>
+          <button class="btn ghost" id="pvTest">测试连接</button>
+          <span class="test-result mono" id="pvResult"></span>
+        </div>
+        <div class="hint">如果用的是推理型模型，记得把输出长度上限调大一点，否则写出来的正文可能是空的。</div>
+      </div>
+    </section>
+
+    <section class="page" id="page-settings" hidden>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>发布节奏</h2></div>
+          <label class="field"><span>每日目标</span><span class="help">一天最多产出几条（草稿或发布都算）。</span><input id="setDailyTarget" type="number" min="1" max="200" /></label>
+          <label class="field"><span>引用占比 <b class="mono" id="quoteRatioVal">0.40</b></span><span class="help">每天内容里多大比例是「引用别人的帖子再加自己的话」。0.40 就是十条约四条是引用。</span>
+            <input id="setQuoteRatio" type="range" min="0" max="1" step="0.05" /></label>
+          <label class="field"><span>最小间隔（分钟）</span><span class="help">两条内容之间至少隔多久。填 60 就是至少等一小时。</span><input id="setMinGap" type="number" min="1" max="720" /></label>
+          <label class="field"><span>最大间隔（分钟，留空=固定按最小间隔）</span><span class="help">两条之间的实际间隔会在「最小～最大」之间随机取一个，让它不像机器一样卡点；留空就固定按最小间隔发。</span><input id="setMaxGap" type="number" min="1" max="720" placeholder="随机区间上限" /></label>
+          <div class="hint">发布间隔在「最小～最大」之间随机取值，避免机械式固定节奏；最大需大于最小。</div>
+          <div class="field-row">
+            <label class="field"><span>活跃起</span><span class="help">每天几点开始工作。</span><input id="setHourStart" type="number" min="0" max="23" /></label>
+            <label class="field"><span>活跃止</span><span class="help">每天几点停止工作（24=午夜）。这个时段之外它都安静待着。</span><input id="setHourEnd" type="number" min="1" max="24" /></label>
+          </div>
+          <div class="hint">夜间静默：不在活跃时段内不产生新草稿。</div>
+
+          <div class="card-head sub-head"><h2>每日配额</h2></div>
+          <div class="field-row">
+            <label class="field"><span>原创帖</span><span class="help">每天最多写几条自己原创的帖子；0=关掉这条线；留空=不改。</span><input id="setPostDailyMax" type="number" min="0" /></label>
+            <label class="field"><span>引用</span><span class="help">每天最多引用别人几条帖子；0=关掉；留空=不改。</span><input id="setQuoteDailyMax" type="number" min="0" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>扯淡（Muse）</span><span class="help">随手发点感想，不含事实性内容。每天最多几条；0=关掉；留空=不改。</span><input id="setMuseDailyMax" type="number" min="0" /></label>
+            <label class="field"><span>回复评论区</span><span class="help">每天最多回复自己帖子下几条评论；0=关掉；留空=不改。</span><input id="setReplyDailyMax" type="number" min="0" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>别人评论区互动</span><span class="help">每天最多去互关朋友评论区留言几条；0=关掉；留空=不改。</span><input id="setOthersReplyDailyMax" type="number" min="0" /></label>
+            <label class="field"><span>自动刷帖</span><span class="help">每天最多自动刷几次时间线；0=关掉；留空=不改。</span><input id="setBrowseDailyMax" type="number" min="0" /></label>
+<label class="field"><span>涨粉关注</span><span class="help">每天最多关注几个蓝V小号；0=关掉；留空=不改。</span><input id="setFollowDailyMax" type="number" min="0" /></label>
+<label class="field"><span>回关蓝V</span><span class="help">每天最多回关几个关注你的蓝V；0=关掉；留空=不改。</span><input id="setFollowBackDailyMax" type="number" min="0" /></label>
+          </div>
+          <div class="hint">0=封锁该线（当天不再执行）；留空=保持当前值不修改。</div>
+
+          <div class="card-head sub-head"><h2>冷却（分钟）</h2></div>
+          <div class="field-row">
+            <label class="field"><span>原创帖</span><span class="help">两条原创之间至少等几分钟；0=不等待；留空=不改。</span><input id="setPostCooldownMinutes" type="number" min="0" /></label>
+            <label class="field"><span>引用</span><span class="help">两条引用之间至少等几分钟；0=不等待；留空=不改。</span><input id="setQuoteCooldownMinutes" type="number" min="0" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>别人评论区互动</span><span class="help">两次去别人评论区留言之间至少等几分钟；0=不等待；留空=不改。</span><input id="setOthersReplyCooldownMinutes" type="number" min="0" /></label>
+            <label class="field"><span>自动刷帖</span><span class="help">两次刷时间线之间至少等几分钟；0=不等待；留空=不改。</span><input id="setBrowseCooldownMinutes" type="number" min="0" /></label>
+<label class="field"><span>涨粉关注</span><span class="help">两次关注蓝V之间至少等几分钟；0=不等待；留空=不改。</span><input id="setFollowCooldownMinutes" type="number" min="0" /></label>
+<label class="field"><span>回关蓝V</span><span class="help">两次回关之间至少等几分钟；0=不等待；留空=不改。</span><input id="setFollowBackCooldownMinutes" type="number" min="0" /></label>
+          </div>
+          <div class="hint">0=无冷却（每次执行后立刻可再次执行）；留空=保持当前值不修改。</div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>模式</h2></div>
+          <div class="seg">
+            <label class="radio seg"><input type="radio" name="runMode" value="review" /><span><b>审核</b> — 保险模式：所有内容先写成草稿放进队列，你点「发布」才会真发。</span></label>
+            <label class="radio seg"><input type="radio" name="runMode" value="auto" /><span><b>全自动</b> — 省心模式：它检查安全后就直接发布，不经过你审核，风险自己承担。</span></label>
+          </div>
+          <div class="hint" id="modeHint"></div>
+
+          <div class="card-head sub-head"><h2>语气</h2></div>
+          <label class="check"><input type="checkbox" id="setVoiceEnabled" /><span>启用语气学习（从历史帖提炼声纹）</span><span class="help hint-block">开启后它会学你以前发帖的语气来写，让内容更像你本人。</span></label>
+
+          <div class="card-head sub-head"><h2>安全</h2></div>
+          <label class="check danger-check"><input type="checkbox" id="setAllowFinance" /><span>允许财经类内容</span><span class="help hint-block">允许它写财经这类高风险内容，勾选时会有确认提醒。</span></label>
+          <label class="check danger-check"><input type="checkbox" id="setAllowPolitics" /><span>允许政治类内容</span><span class="help hint-block">允许它写政治这类高风险内容，勾选时会有确认提醒。</span></label>
+          <div class="hint warn">这类内容在 X 属于高风险，可能导致账号被限制。</div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>功能开关</h2></div>
+          <label class="check"><input type="checkbox" id="setFeatPost" /><span>原创帖</span><span class="help hint-block">自己写新帖子。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatQuote" /><span>引用</span><span class="help hint-block">转发别人的帖子，加上你自己的话。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatMuse" /><span>扯淡（Muse）</span><span class="help hint-block">随手发点感想、碎碎念，不涉及事实内容。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatReply" /><span>回复评论区</span><span class="help hint-block">回复你自己帖子下面的评论。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatLike" /><span>点赞</span><span class="help hint-block">只点赞、不发言。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatBrowse" /><span>自动刷帖</span><span class="help hint-block">像真人一样刷时间线，让账号更活跃。</span></label>
+          <label class="check"><input type="checkbox" id="setFeatOthersReply" /><span>别人评论区互动（去互关朋友评论区留言，不走引用）</span><span class="help hint-block">去互关朋友的评论区留言互动，跟「引用」是两码事。</span></label>
+<label class="check"><input type="checkbox" id="setFeatFollow" /><span>涨粉（关注蓝V小号 + 去他们评论区互动）</span><span class="help hint-block">自动关注粉丝数在 1 万以内的蓝V账号，并去他们帖子下评论，帮你涨粉涨互动。默认关闭，打开后先出草稿等你审核。</span></label>
+<label class="check"><input type="checkbox" id="setFeatFollowBack" /><span>回关（只回关关注你的蓝V）</span><span class="help hint-block">谁关注了你，就回关谁；只回关蓝V，不受 1 万粉丝上限限制（因为对方先关注了你）。这是涨粉的一部分，关掉后就不再自动回关。</span></label>
+          <div class="hint">关闭的功能线整轮跳过；原创帖关闭时，引用/扯淡降级路径也会整轮跳过。</div>
+          <div class="browse-sub" id="browseSub" hidden>
+            <div class="field-row">
+              <label class="field"><span>每次浏览分钟数</span><span class="help">每刷一次花几分钟。</span><input id="setBrowseMinutes" type="number" min="1" max="60" /></label>
+              <label class="field"><span>滚动次数</span><span class="help">每次往下滚几屏。</span><input id="setBrowseScrolls" type="number" min="1" max="30" /></label>
+            </div>
+            <label class="check"><input type="checkbox" id="setBrowseLike" /><span>浏览时点赞</span><span class="help hint-block">刷的时候顺便给看到的内容点几个赞。</span></label>
+            <div class="hint">浏览只读+点赞，绝不发布；点赞共享每日点赞配额。</div>
+          </div>
+        </div>
+      </div>
+
+      <details class="card advanced">
+        <summary>高级：拟人化参数</summary>
+        <div class="field-row">
+          <label class="field"><span>字符延时下限 (毫秒)</span><span class="help">打字时每个字之间最少停几毫秒。</span><input id="setTypeMin" type="number" min="5" max="500" /></label>
+          <label class="field"><span>字符延时上限 (毫秒)</span><span class="help">打字时每个字之间最多停几毫秒。</span><input id="setTypeMax" type="number" min="5" max="1000" /></label>
+        </div>
+        <label class="field"><span>每字延时 <b class="mono" id="typeDelayVal"></b></span><span class="help">打字时每个字之间停几毫秒，让它像真人一样慢慢打，而不是瞬间粘贴。</span>
+          <input id="setTypeDelay" type="range" min="5" max="300" step="5" /></label>
+      </details>
+
+      <div class="btn-row sticky-save">
+        <button class="btn ghost" id="obReopen">重新查看新手引导</button>
+        <button class="btn" id="setSave">保存设置</button>
+        <span class="hint" id="setSaved"></span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal">
+    <h3 id="modalTitle">确认</h3>
+    <p id="modalBody"></p>
+    <label class="field" id="modalReasonWrap" hidden><span>丢弃原因（可不选；选一个能帮它下次少写这类内容）</span>
+      <select id="modalReason"></select>
+    </label>
+    <div class="btn-row right">
+      <button class="btn ghost" id="modalCancel">取消</button>
+      <button class="btn danger" id="modalOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- onboarding overlay: 5 interactive setup steps. Static shells live here so
+     test-onboarding.mjs can assert IDs; the renderer removes them at runtime
+     and mounts fresh step DOM (which renders the same ids). -->
+<div class="ob-backdrop" id="obOverlay" hidden>
+  <div class="ob-card">
+    <h3>欢迎使用 SocialMate</h3>
+    <p class="ob-step">第 <b id="obStepNum">1</b> / <span id="obStepTotal">5</span> 步</p>
+    <div class="ob-body" id="obBody"></div>
+    <div class="btn-row right ob-actions">
+      <button class="btn ghost" id="obSkip">跳过</button>
+      <button class="btn ghost" id="obPrev" hidden>上一步</button>
+      <button class="btn" id="obNext">下一步</button>
+    </div>
+  </div>
+</div>
+
+<div id="obStep1Shell" hidden>
+  <label class="radio ob-browser-opt"><input type="radio" name="obBrowser" value="edge" id="obBrowserEdge" checked /><span><b>Edge（推荐）</b> — 用你本机 Edge 的登录状态（接管入口 127.0.0.1:9222）</span></label>
+  <label class="radio ob-browser-opt"><input type="radio" name="obBrowser" value="chrome" id="obBrowserChrome" /><span>Chrome — 暂不支持：登录态识别与发布只适配 Edge，后续版本加入。</span></label>
+  <label class="radio ob-browser-opt"><input type="radio" name="obBrowser" value="firefox" id="obBrowserFirefox" /><span>Firefox — 暂不支持：需要和 Edge 一样的接管方式，当前只适配 Edge。</span></label>
+</div>
+
+<div id="obStep2Shell" hidden>
+  <pre class="ob-code mono" id="obCopyCmd">node scripts/copy-edge-profile.mjs</pre>
+  <button class="btn tiny ghost" id="obCopyCmdBtn" type="button">复制命令到剪贴板</button>
+  <div class="ob-account" id="obStep2Account">
+    <img id="obAvatarImg" alt="" /><span class="ob-avatar" id="obAvatarInitial">?</span>
+    <div><b id="obAccountName">读取中…</b><span class="mono" id="obAccountHandle">—</span></div>
+  </div>
+  <p class="ob-hint" id="obAccountNote"></p>
+</div>
+
+<div id="obStep3Shell" hidden>
+  <select id="obMdlProtocol">
+    <option value="openai">OpenAI 兼容</option>
+    <option value="anthropic">Anthropic</option>
+    <option value="openai-responses">OpenAI Responses</option>
+  </select>
+  <input id="obMdlBaseURL" type="text" spellcheck="false" placeholder="https://api.example.com/v1" />
+  <input id="obMdlApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="已配置可留空（只写 secrets.json，不上传）" />
+  <input id="obMdlModel" type="text" spellcheck="false" placeholder="deepseek/deepseek-v4.1-flash" />
+  <button class="btn tiny" id="obMdlTest" type="button">测试连接</button>
+  <button class="btn tiny ghost" id="obMdlSave" type="button">保存</button>
+  <span class="test-result mono" id="obMdlResult"></span>
+</div>
+
+<div id="obStep4Shell" hidden>
+  <textarea id="obTopicSeeds" rows="7" spellcheck="false"></textarea>
+  <button class="btn tiny" id="obTopicsSave" type="button">保存话题</button>
+  <span class="test-result mono" id="obTopicsResult"></span>
+</div>
+
+<div id="obStep5Shell" hidden>
+  <input id="obDailyTarget" type="number" min="1" max="200" />
+  <input id="obMinGap" type="number" min="1" max="720" />
+  <input id="obHourStart" type="number" min="0" max="23" />
+  <input id="obHourEnd" type="number" min="1" max="24" />
+  <button class="btn tiny" id="obPaceSave" type="button">保存节奏</button>
+  <span class="test-result mono" id="obPaceResult"></span>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>

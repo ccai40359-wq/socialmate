@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to provider.json and fill in YOUR model endpoint. provider.json is git-ignored. The API key goes in secrets.json or .env, NOT here. Precedence: real env vars > .env > secrets.json.",
+  "protocol": "openai",
+  "baseURL": "https://your-provider.example.com/v1",
+  "model": "your-main-model",
+  "cheapModel": "your-cheap-scoring-model"
+}

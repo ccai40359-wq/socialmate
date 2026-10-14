@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { appendLog } from './log.mjs';
 
 export function launchEdge(profileDir, edgePath, port) {
-  const dir = resolve(process.cwd(), profileDir);
+  const dir = resolve(process.env.SOCIALMATE_DATA_DIR || process.cwd(), profileDir);
   if (!existsSync(dir)) throw new Error(`Profile copy missing: ${dir}\nRun: node scripts/copy-edge-profile.mjs (with Edge fully closed)`);
   const args = [
     `--user-data-dir=${dir}`,

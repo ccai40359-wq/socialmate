@@ -4,6 +4,7 @@
 // checks for a block first so the scheduler can pause instead of hammering.
 import { appendLog } from './log.mjs';
 import { parseLikeCount } from './parse-count.mjs';
+import { existsSync } from 'node:fs';
 
 let humanize = null;
 try { humanize = await import('./humanize.mjs'); } catch { humanize = null; }
@@ -17,6 +18,7 @@ const SEL = {
   editor: '[data-testid="tweetTextarea_0"]',
   postButton: '[data-testid="tweetButton"]',
   postButtonInline: '[data-testid="tweetButtonInline"]',
+  fileInput: 'input[data-testid="fileInput"]',
   retweet: '[data-testid="retweet"]',
   menuItem: '[role="menuitem"]',
   confirmSheet: '[data-testid="confirmationSheetConfirm"]',
@@ -26,6 +28,10 @@ const SEL = {
   appBarClose: '[data-testid="app-bar-close"]',
   mask: '[data-testid="mask"]',
 };
+
+// Video uploads keep Post disabled for up to ~2 minutes (transcoding), so the
+// enabled check must poll instead of reading aria-disabled once.
+const MEDIA_UPLOAD_TIMEOUT_MS = 120000;
 
 async function gotoHome(page) {
   if (!/\/home/.test(page.url())) {
@@ -160,33 +166,146 @@ async function typeInto(page, text) {
   return editor;
 }
 
-// X's compose surface is either an in-page dialog (home) or the standalone
-// /compose/post route. The old check only looked at the dialog, so a standalone
-// composer was never detected as "still open". The reliable signal for BOTH is
-// whether our text is still sitting in a composer, so we compare content.
+// Only VISIBLE editors count. /home always renders an empty inline composer next
+// to the modal one, and a closed modal can linger in the DOM for a moment, so
+// counting hidden editors produced a false "still open" verdict which callers
+// then treated as a lost post.
 async function composerStillHolds(page, text) {
   return page.evaluate((t) => {
-    const boxes = [...document.querySelectorAll('[data-testid="tweetTextarea_0"]')];
+    const vis = (el) => {
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return false;
+      return el.getBoundingClientRect().width > 0;
+    };
+    const boxes = [...document.querySelectorAll('[data-testid="tweetTextarea_0"]')].filter(vis);
     if (!boxes.length) return false;
-    const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
     const want = norm(t).slice(0, 40);
     if (!want) return boxes.length > 0;
     return boxes.some((b) => norm(b.innerText).includes(want));
   }, text).catch(() => false);
 }
 
-async function submitPost(page, text) {
-  const btn = page.locator(SEL.postButton).last();
+async function submitPost(page, text, mediaPath) {
+  // With media attached the dialog also owns the Post button, so scope there
+  // to avoid clicking an unrelated button on the timeline behind the modal.
+  const btn = mediaPath
+    ? composerDialog(page).locator(SEL.postButton).last()
+    : page.locator(SEL.postButton).last();
   await btn.waitFor({ state: 'visible', timeout: 10000 });
-  const disabled = await btn.getAttribute('aria-disabled');
-  if (disabled === 'true') throw new Error('Post button disabled; content may be rejected or already empty');
-  await btn.click({ timeout: 10000 });
-  await page.waitForTimeout(5000);
-  if (await composerStillHolds(page, text)) {
-    const toast = await page.locator(SEL.toast).first().innerText({ timeout: 2000 }).catch(() => '');
-    return { ok: false, toast };
+  if (mediaPath) {
+    // Video transcoding keeps Post disabled for up to ~2 minutes, so poll the
+    // attachment status ("Uploading" / "Processing" / "Ready") before clicking.
+    await waitForMediaReady(page);
+  } else {
+    const disabled = await btn.getAttribute('aria-disabled');
+    if (disabled === 'true') throw new Error('Post button disabled; content may be rejected or already empty');
   }
-  return { ok: true };
+  await btn.click({ timeout: 10000 });
+  // Success on X means the composer CLOSES. Poll for that instead of reading the
+  // state once after a fixed wait: under load the modal can still be up well past
+  // 5s after a click that did land, which was logged as a lost post.
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    if (!(await composerStillHolds(page, text))) return { ok: true };
+    await page.waitForTimeout(1000);
+  }
+  const toast = await page.locator(SEL.toast).first().innerText({ timeout: 2000 }).catch(() => "");
+  return { ok: false, toast };
+}
+
+// Single-file validation for the media argument. Arrays are rejected: exactly
+// ONE file may be attached to an original post.
+function normalizeMediaArg(mediaArg) {
+  if (mediaArg === undefined || mediaArg === null || mediaArg === '') return null;
+  if (Array.isArray(mediaArg)) throw new Error('media must be a single file path, not an array');
+  if (typeof mediaArg !== 'string') throw new Error('media must be a single file path string');
+  return mediaArg;
+}
+
+// The composer lives in a [role="dialog"] modal (both /compose/post and the
+// /home inline composer). Scoping every media probe to that dialog is
+// essential: the background timeline also renders media/progress nodes, so a
+// page-level probe would wrongly conclude that media is already attached and
+// skip the upload entirely.
+function composerDialog(page) {
+  return page.locator('[role="dialog"]').last();
+}
+
+// Attach exactly one file via setInputFiles, scoped to the open composer.
+async function attachMedia(page, mediaPath) {
+  const dialog = composerDialog(page);
+  await dialog.waitFor({ state: 'visible', timeout: 15000 });
+  const inDialog = dialog.locator(SEL.fileInput);
+  const input = (await inDialog.count()) > 0 ? inDialog.last() : page.locator(SEL.fileInput).last();
+  // The file input is visually hidden on X, so wait for it to exist, not to be visible.
+  await input.waitFor({ state: 'attached', timeout: 15000 });
+  await input.setInputFiles(mediaPath);
+  appendLog('xbot: media attached (media: yes)');
+  await page.waitForTimeout(1500);
+}
+
+// Media failures must not silently degrade to a text-only post: dismiss the
+// composer before throwing so no half-uploaded composer is left behind.
+async function clearComposerForMediaFail(page) {
+  try { await dismissComposer(page); } catch (_) {}
+  try { await clearStaleComposer(page); } catch (_) {}
+}
+
+// Real attachment state, read from inside the composer dialog only.
+// X renders the media preview as [data-testid="attachments"] and writes a status
+// line into it ("<file>: Uploading (56%)" / "Processing" / "Ready"). That status
+// text is the reliable readiness signal; the progress bar node is always present
+// in this build (visible even when idle), so it is NOT used as a gate.
+async function mediaState(page) {
+  const dialog = composerDialog(page);
+  const idle = { attached: false, ready: false, working: false, disabled: 'true', status: '' };
+  if ((await dialog.count()) === 0) return idle;
+  return dialog.evaluate((el) => {
+    const att = el.querySelector('[data-testid="attachments"]');
+    const btn = el.querySelector('[data-testid="tweetButton"]');
+    const mediaCount = att ? att.querySelectorAll('video, img').length : 0;
+    const status = att ? att.innerText.replace(/\s+/g, ' ').trim() : '';
+    return {
+      attached: mediaCount > 0,
+      ready: /\bReady\b/i.test(status),
+      working: /Uploading|Processing|上传|处理/i.test(status),
+      disabled: btn ? btn.getAttribute('aria-disabled') : 'nobtn',
+      status,
+    };
+  }).catch(() => idle);
+}
+
+// True only when media is already attached INSIDE the composer dialog (retry path).
+async function mediaThumbPresent(page) {
+  const s = await mediaState(page);
+  return s.attached;
+}
+
+// Attach only if the media is not already present in the composer (retry path).
+async function attachMediaIfNeeded(page, mediaPath) {
+  if (!mediaPath) return;
+  if (await mediaThumbPresent(page)) return;
+  try {
+    await attachMedia(page, mediaPath);
+  } catch (e) {
+    await clearComposerForMediaFail(page);
+    throw new Error('media attach failed; composer cleared; nothing posted (' + e.message + ')');
+  }
+}
+
+// Poll until the upload has fully settled: media attached, status reads "Ready"
+// (no longer "Uploading"/"Processing"), and the Post button is enabled. Video
+// transcoding can take ~30s-2min, so never click Post while still pending.
+async function waitForMediaReady(page) {
+  const deadline = Date.now() + MEDIA_UPLOAD_TIMEOUT_MS;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await mediaState(page);
+    if (last.attached && last.ready && !last.working && last.disabled !== 'true') return;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error('media upload timeout: media never reached Ready (' + JSON.stringify(last) + ')');
 }
 
 // Submit, recovering from X's own error page. Safe against double-posting: a
@@ -222,7 +341,7 @@ async function clickPost(page, text) {
 // re-types if the first attempt lost the draft. Used by post() where re-typing
 // is cheap; quote() keeps the conservative clickPost() because re-opening a
 // quote composer means redoing the retweet menu.
-async function composeAndSubmit(page, text) {
+async function composeAndSubmit(page, text, mediaPath) {
   let last = { ok: false, toast: '' };
   for (let attempt = 1; attempt <= 2; attempt++) {
     if (await pageIsBroken(page)) {
@@ -235,8 +354,12 @@ async function composeAndSubmit(page, text) {
       await page.locator(SEL.composeEntry).first().click({ timeout: 15000 });
       await page.waitForTimeout(1800);
       await typeInto(page, text);
+      await attachMediaIfNeeded(page, mediaPath);
+    } else if (mediaPath) {
+      // A failed submit left the composer open: re-attach media if the upload was lost.
+      await attachMediaIfNeeded(page, mediaPath);
     }
-    last = await submitPost(page, text);
+    last = await submitPost(page, text, mediaPath);
     if (last.ok) return;
     if (attempt < 2) {
       appendLog('xbot: submit did not clear the composer; retrying once' + (last.toast ? ' (toast: ' + last.toast + ')' : ''));
@@ -266,12 +389,22 @@ async function dismissComposer(page) {
   return (await page.locator(SEL.modalEditor).count()) === 0;
 }
 
-export async function post(page, text) {
+export async function post(page, text, mediaArg) {
+  const mediaPath = normalizeMediaArg(mediaArg);
+  // Fail before opening the composer when the media file is missing.
+  if (mediaPath !== null && !existsSync(mediaPath)) {
+    throw new Error('media file not found: ' + mediaPath);
+  }
   await assertLoggedIn(page);
   await guard(page);
   await humanWarmup(page);
-  await composeAndSubmit(page, text);
-  appendLog('POST ok :: ' + text.slice(0, 70).replace(/\s+/g, ' '));
+  try {
+    await composeAndSubmit(page, text, mediaPath);
+  } catch (e) {
+    if (mediaPath !== null) await clearComposerForMediaFail(page);
+    throw e;
+  }
+  appendLog('POST ok :: ' + text.slice(0, 70).replace(/\s+/g, ' ') + (mediaPath !== null ? ' [media]' : ''));
 }
 
 export async function quote(page, tweetUrl, comment) {

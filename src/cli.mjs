@@ -54,6 +54,14 @@ function loadPool() {
 // In review mode a manual post/quote/reply becomes a draft instead of going
 // out — same as the daemon — unless --publish is passed explicitly.
 const PUBLISH_FLAG = args.includes('--publish');
+// Read the value that follows a named flag (--media <path> / --text <lit>).
+function flagValue(name) {
+  const i = args.indexOf(name);
+  if (i === -1) return null;
+  const v = args[i + 1];
+  if (v === undefined || v.startsWith('--')) return null;
+  return v;
+}
 function cliGate() {
   const c = readControl();
   const want = c.mode || cfg.autoMode || 'review';
@@ -118,7 +126,7 @@ if (cmd === 'status') {
         if (!verdict.ok) { console.log(`draft #${d.id} blocked by gate: ${verdict.reasons.join(',')}`); continue; }
         if (d.kind === 'reply') await reply(page, d.targetUrl, d.text);
         else if (d.kind === 'quote') await quote(page, d.targetUrl, d.text);
-        else await post(page, d.text);
+        else await post(page, d.text, d.mediaPath || undefined);
         removeDraft(d.id);
         remember({ id: 'd' + d.id, text: d.text, kind: d.kind, url: d.targetUrl });
         console.log(`published draft #${d.id} (${d.kind})`);
@@ -158,19 +166,29 @@ if (cmd === 'status') {
   console.log('pool:', all.length, 'items;', all.filter(xOriginalOf).length, 'with X originals');
 } else if (cmd === 'post') {
   const gate = cliGate();
+  const mediaRequested = args.includes('--media');
+  const mediaPath = flagValue('--media');
+  if (mediaRequested && !mediaPath) { console.log('usage: post [--text "<literal>"] [--media <path>] [--publish] (--media needs a path)'); return 1; }
+  const literalText = flagValue('--text');
+  const verbatim = literalText !== null;
   const pool = loadPool();
-  const item = pool[Math.floor(Math.random() * pool.length)];
-  if (!item) { console.log('pool is empty; run: node src/cli.mjs pool'); return 1; }
-  const voiced = await generatePostText(item);
-  const text = buildPost(item, voiced);
+  // The default behaviour is unchanged: pull a random pool item and generate
+  // its body. An explicit --text replaces the whole body AND drops the pool
+  // item entirely, so no unrelated title is attached to the literal text.
+  const item = verbatim ? null : pool[Math.floor(Math.random() * pool.length)];
+  if (!item && !verbatim) { console.log('pool is empty; run: node src/cli.mjs pool'); return 1; }
+  const voiced = !verbatim ? await generatePostText(item) : null;
+  const text = verbatim ? literalText : buildPost(item, voiced);
   const verdict = checkPost({ text, cfg, kind: 'post', state });
   if (!verdict.ok) { console.log('gate rejected (' + verdict.reasons.join(',') + '):', text.slice(0, 80)); return 1; }
   if (!gate.publish) {
-    queueInstead('post', null, text, { title: item.title || '' });
+    const extra = { title: item ? (item.title || '') : '' };
+    if (mediaPath) extra.mediaPath = mediaPath;
+    queueInstead('post', null, text, extra);
     return 0;
   }
-  await withPage((page) => post(page, text));
-  console.log('posted:', item.title, voiced ? `[voice: ${voiced}]` : '[template]');
+  await withPage((page) => post(page, text, mediaPath || undefined));
+  console.log('posted:', verbatim ? '(literal text)' : (item ? item.title : ''), voiced ? `[voice: ${voiced}]` : '[template]', mediaPath ? '[media: yes]' : '');
 } else if (cmd === 'quote') {
   const gate = cliGate();
   const [url, ...rest] = args;

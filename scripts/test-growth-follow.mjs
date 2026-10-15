@@ -415,6 +415,44 @@ check('AC-FB14', 'already-following does not count as a fresh follow', () => {
   return pass('already-following is booked as no-op');
 });
 
+// AC-FB15 (2026-10-15 live regression): the authoritative /verified_followers
+// source must run BEFORE the notification source. The notification feed is a
+// superset of "everyone who ever followed me" and cannot tell whether I already
+// follow back, so when it ran first it consumed followBackCap and the genuinely
+// pending people were never reached (and already-followed ones were drafted).
+check('AC-FB15', 'authoritative verified-followers source runs before notifications', () => {
+  const s = readFileSync('src/run.mjs', 'utf8');
+  const v = s.indexOf('collectVerifiedFollowBacks(page, { myHandle');
+  const n = s.indexOf('collectFollowBacks(page, { myHandle');
+  if (v < 0) return 'verified-followers source missing';
+  if (n < 0) return 'notifications source missing';
+  if (v > n) return 'notifications source is still first (regression)';
+  return pass('verified-followers at ' + v + ' precedes notifications at ' + n);
+});
+
+// AC-FB16: an account we already follow must never be drafted as a 回关.
+// The notification source cannot know the current relationship, so the
+// decision is made right after the profile read.
+check('AC-FB16', 'a follow-back candidate we already follow is dropped', () => {
+  const s = readFileSync('src/run.mjs', 'utf8');
+  if (!/isFollowing/.test(s)) return 'profile eval does not read the follow state';
+  if (!/if \(isFollowBack && profile && profile\.isFollowing === true\)/.test(s)) return 'no already-following guard for follow-back';
+  if (!/already following ' \+ author \+ ' \(no follow-back needed\)/.test(s)) return 'guard has no log line';
+  return pass('already-followed follow-back targets are dropped');
+});
+
+// AC-FB17: myHandle is NOT in the shipped config, and the authoritative source
+// needs it. Leaving it to config silently disabled the whole source, so it must
+// be resolved from the live session and degrade to config on failure.
+check('AC-FB17', 'myHandle is resolved from the live session when config omits it', () => {
+  const s = readFileSync('src/run.mjs', 'utf8');
+  if (!/let myHandle = String\(c\.myHandle/.test(s)) return 'myHandle is not reassignable';
+  if (!/SideNav_AccountSwitcher_Button/.test(s)) return 'no live handle read';
+  if (!/resolved myHandle from the live session/.test(s)) return 'no log for the resolved handle';
+  const cfg = JSON.parse(readFileSync('config.example.json', 'utf8'));
+  if (cfg.myHandle) return 'config.example.json now ships myHandle; the auto-detect regression test is moot';
+  return pass('handle auto-detected; config.example.json still omits it');
+});
 await Promise.all(pending);
 
 const failed = results.filter((r) => !r.ok);

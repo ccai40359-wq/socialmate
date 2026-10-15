@@ -23,6 +23,7 @@ import { checkPost, remember, hollowQuote, quoteCountForAuthorToday, checkKindBu
 import { parseFollowerCount, qualifiesAsGrowthTarget } from './perceive/verified.mjs';
 import { collectCommentersFromPost, handleFromStatusUrl } from './perceive/commenters.mjs';
 import { collectFollowBacks } from './perceive/notifications.mjs';
+import { collectVerifiedFollowBacks } from './perceive/verified-followers.mjs';
 
 
 // T7: nothing may block the loop for more than five minutes. The user
@@ -757,19 +758,65 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
   // any source is re-verified on its own profile page below, so an over-limit
   // account (16.8k, 14.4k, 62.7k...) is never followed, no matter where it
   // came from.
-  const myHandle = String(c.myHandle || '').replace(/^@/, '').toLowerCase();
+  let myHandle = String(c.myHandle || '').replace(/^@/, '').toLowerCase();
+  // The authoritative 回关 source (Source 0) needs my own handle, and config
+  // ships WITHOUT myHandle — so leaving it to config silently disabled the one
+  // source that can actually see everyone who follows me. Read it from the
+  // live session instead (same signal replies.mjs uses), and only fall back to
+  // config. Best-effort: a failed read leaves the config value untouched and
+  // never throws.
+  if (!myHandle && page && typeof page.locator === 'function') {
+    try {
+      const txt = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').first().innerText({ timeout: 5000 }).catch(() => '');
+      const ats = [...String(txt || '').matchAll(/@([A-Za-z0-9_]{1,15})/g)];
+      if (ats.length) myHandle = ats[ats.length - 1][1].toLowerCase();
+    } catch { /* keep the config value */ }
+    if (myHandle) appendLog('growthFollow: resolved myHandle from the live session -> @' + myHandle);
+    else appendLog('growthFollow: could not resolve myHandle; skipping the verified-followers source');
+  }
   const maxPosts = c.growthFollow?.maxPosts ?? 3;
   const maxPerPost = c.growthFollow?.maxPerPost ?? 8;
 
-  // Source 0 (回关, highest priority): accounts that just followed me get
-  // followed back. Read-only notifications scan; degrades to [] on failure so
-  // a broken notification feed never blocks the rest of the lane.
   // 回关 must not starve the proactive lane: the two share one round's
-  // candidate budget, and a busy notification feed would otherwise fill every
+  // candidate budget, and a busy follow-back list would otherwise fill every
   // slot so Source 2 (interaction-post commenters) never ran. Reserve at least
   // half the round for proactive discovery.
   const followBackCap = Math.max(0, Math.min(maxPerRound, c.growthFollow?.followBackMaxPerRound ?? Math.ceil(maxPerRound / 2)));
   let followBackTaken = 0;
+
+  // Source 0 (回关, authoritative - MUST run BEFORE the notification source):
+  // the account's own /verified_followers list. The notifications feed only
+  // exposes a SAMPLE of new followers (X renders "X and 34 others followed you"
+  // and links ~10), so most people who followed back were never discovered.
+  // This page lists every one of them with a literal "Follows you" badge and
+  // filters to accounts we do NOT already follow (button = "Follow"), so it is
+  // both authoritative and cheaper than re-walking each profile.
+  //
+  // ORDER MATTERS (regression observed live 2026-10-15): when the notification
+  // source ran first it returned everyone who ever followed me - including
+  // accounts I already follow back - and consumed the whole followBackCap, so
+  // this authoritative list never got a slot and the genuinely-pending people
+  // were never reached (it also drafted follow-backs for people already
+  // followed). The precise, already-filtered source therefore goes first and
+  // the noisy notification feed only fills whatever is left.
+  // Best-effort: failures degrade to [] and never block the rest of the lane.
+  if (followBackBudget.ok && followBackCap > 0 && candidateHandles.length < maxPerRound && myHandle && page && typeof page.goto === 'function') {
+    const listed = await collectVerifiedFollowBacks(page, { myHandle, maxScrolls: c.growthFollow?.maxFollowersScrolls ?? 4 });
+    for (const person of listed) {
+      if (candidateHandles.length >= maxPerRound) break;
+      if (followBackTaken >= followBackCap) break;
+      if (seenFollowSet.has(person.author) || seenAuthors.has(person.author)) continue;
+      if (candidateHandles.some((h) => h.author === person.author)) continue;
+      candidateHandles.push({ author: person.author, verified: person.verified === true, followers: null, followBack: true });
+      followBackTaken++;
+    }
+  }
+
+  // Source 0b (回关, fallback): accounts that just followed me, read from the
+  // notifications page. Read-only scan; degrades to [] on failure so a broken
+  // notification feed never blocks the rest of the lane. This source cannot
+  // tell whether we already follow the person back (that needs a profile
+  // visit), so it deliberately runs AFTER the authoritative list.
   if (followBackBudget.ok && followBackCap > 0 && candidateHandles.length < maxPerRound && page && typeof page.goto === 'function') {
     const backs = await collectFollowBacks(page, { myHandle, maxScrolls: c.growthFollow?.maxNotifScrolls ?? 6 });
     for (const person of backs) {
@@ -781,6 +828,7 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
       followBackTaken++;
     }
   }
+
 
   // Source 1: pool rows that already carry a confirmed verified+follower count.
   // Cheapest path, no navigation. proactive-follow ONLY: if features.follow
@@ -887,7 +935,12 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
             const t = te ? te.innerText : '';
             if (t) { latestTweet = t; latestStatusUrl = href; break; }
           }
-          return { text, verified, latestTweet, latestStatusUrl };
+          // Whether we already follow this account decides the follow-back
+          // path: a profile renders <id>-unfollow when we follow them and
+          // <id>-follow when we do not, so this is a direct read of the
+          // current relationship (no extra navigation).
+          const isFollowing = !!document.querySelector('button[data-testid$="-unfollow"]');
+          return { text, verified, latestTweet, latestStatusUrl, isFollowing };
 
         });
         verifiedOk = profile.verified;
@@ -898,6 +951,16 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
       }
     }
     const isFollowBack = target.followBack === true;
+    // 回关 is "follow back someone who follows me" — if we already follow them
+    // there is nothing to do. The notification source cannot tell (it would
+    // need a profile visit, which is exactly what just happened), so this is
+    // where an already-followed account is dropped. Without it the lane kept
+    // drafting "pending follow + comment" for people already followed, which
+    // is what made the UI show 回关 candidates that were not pending at all.
+    if (isFollowBack && profile && profile.isFollowing === true) {
+      appendLog('growthFollow skip :: already following ' + author + ' (no follow-back needed)');
+      continue;
+    }
     // P0: the 回关 and proactive-follow lanes each need their own switch open.
     // A stale candidate from a lane that was switched off mid-run is dropped
     // here, so features.follow=false can never lead to a proactive follow.

@@ -50,3 +50,8 @@ config.json
 
 # 本地临时脚本 / 一次性驱动
 _sm_*
+_p*.mjs
+_probe.mjs
+_probe/
+_frames*/
+_promoframes/

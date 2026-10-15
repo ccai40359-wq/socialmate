@@ -47,6 +47,10 @@ SocialMate 的定位不是「纯自动发帖机器人」，而是**自媒体人�
 
 ---
 
+> 想把这套「操作 X」的能力直接给别的 agent 用？见姊妹项目
+> **[agent-skill-forx](https://github.com/ccai40359-wq/agent-skill-forx)**
+> —— Agent Skill + MCP server，把点赞、刷帖、互关、引用、评论做成 agent 的原生工具。
+
 ## 能做什么（功能总览）
 
 每条线都可以在桌面端「设置 → 功能开关」里单独开/关。

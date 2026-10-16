@@ -316,6 +316,42 @@ async function api(req, res, url) {
               seen.ids = [...ids].slice(-800);
               saveJson(seenPath, seen);
             } catch (e) { appendLog('follow-seen: write failed ' + e.message); }
+
+            // P0: "涨粉 = 关注 + 去对方评论区留言" — an approved growth follow
+            // must also land the comment, exactly like the auto path in
+            // run.mjs does after follow(). This was the missing half: the
+            // draft used to carry an empty body and no status URL, so the
+            // approval could only ever follow() and the promised comment
+            // never happened. The comment target is d.commentUrl (a status
+            // URL); a profile URL has no reply box. It is gated by the
+            // othersReply budget + checkPost + hollowQuote, and a comment
+            // failure NEVER rolls back the follow that already succeeded.
+            const commentText = String(d.text || '').trim();
+            const commentUrl = String(d.commentUrl || '').trim();
+            if (commentText && commentUrl) {
+              try {
+                const { hollowQuote } = await import('./gate.mjs');
+                const cBudget = checkKindBudget({ kind: 'othersReply', state, cfg: { gate: cfg.gate, features: cfg.features } });
+                const cVerdict = cBudget.ok ? checkPost({ text: commentText, cfg, kind: 'othersReply', state }) : cBudget;
+                const isHollow = hollowQuote(commentText, d.sourceText || '');
+                if (cVerdict.ok && !isHollow) {
+                  await mod.reply(page, commentUrl, commentText);
+                  state.othersRepliesPublished = (state.othersRepliesPublished || 0) + 1;
+                  state.lastOthersReplyAt = Date.now();
+                  try { saveJson(resolve(ROOT, cfg.stateFile || 'state.json'), state); } catch (e) { appendLog('state: write failed ' + e.message); }
+                  try {
+                    const { remember } = await import('./gate.mjs');
+                    remember({ id: 'gr' + d.id, text: commentText, kind: 'othersReply', url: commentUrl });
+                  } catch (e) { appendLog('growthFollow comment remember failed: ' + e.message); }
+                } else {
+                  appendLog('approved growth comment skipped (gate): ' + (cVerdict.reasons || []).join(',') + (isHollow ? ',hollow' : ''));
+                }
+              } catch (e) {
+                appendLog('approved growth comment failed (no rollback): ' + e.message);
+              }
+            } else {
+              appendLog('approved growth draft has no comment (text=' + !!commentText + ' url=' + !!commentUrl + ')');
+            }
           }
           else await mod.post(page, d.text);
           removeDraft(d.id);

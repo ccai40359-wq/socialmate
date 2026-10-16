@@ -986,12 +986,34 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
     }
     checked++;
     const url = 'https://x.com/' + encodeURIComponent(author);
+    // The comment target and its text are resolved BEFORE the branch so both
+    // the review draft and the auto path describe the SAME action. Review
+    // mode used to queue an empty body with no status URL, and the approval
+    // path could therefore only ever follow() — the comment half of
+    // "涨粉 = 关注 + 评论区互动" silently never happened for an approved
+    // draft (P0). The text is generated at DRAFT time so a human can read and
+    // edit exactly what will be said before approving it.
+    const latest = (profile && profile.latestTweet) || '';
+    const targetStatus = (profile && profile.latestStatusUrl) || '';
+    const commentUrl = targetStatus
+      ? (/^https?:/i.test(targetStatus) ? targetStatus : 'https://x.com' + targetStatus)
+      : '';
+    let commentText = '';
+    if (commentUrl && latest) {
+      try {
+        commentText = (await (draftFn || draftOthersReplyFor)({ author, text: latest, likes: 0, lang: 'zh', url: commentUrl, source: 'x-home' })) || '';
+      } catch (e) {
+        appendLog('growthFollow draft comment failed (no rollback): ' + e.message);
+      }
+    }
     if (!gate.publish) {
       // P1-2: keep the hui-guan lane on the draft. In review mode the kind
       // stays 'growthFollow' (both lanes share that draft shape), so the
       // approval path needs an explicit marker to route it to the followBack
       // budget, counter and published-feed entry.
-      const d = addDraft({ kind: 'growthFollow', lane: (isFollowBack ? 'followBack' : 'follow'), targetUrl: url, text: '', author, followers, note: 'follow + comment (review)', pendingFollow: true, sourceText: (profile && profile.latestTweet) || '' }, draftsFile);
+      // The follow itself is d.targetUrl (a profile URL); the comment must
+      // go to d.commentUrl (a status URL) — a profile page has no reply box.
+      const d = addDraft({ kind: 'growthFollow', lane: (isFollowBack ? 'followBack' : 'follow'), targetUrl: url, text: commentText, commentUrl, author, followers, note: 'follow + comment (review)', pendingFollow: true, sourceText: latest }, draftsFile);
       appendLog('DRAFT growthFollow #' + d.id + ' -> @' + author + ' (gate=' + gate.reason + '): pending follow + comment');
       s.draftsToday = (s.draftsToday || 0) + 1;
       pending++;
@@ -1039,15 +1061,11 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
       // Optional comment on the target's latest tweet (no rollback on
       // failure). The composer only mounts on a real status page, so this
       // needs profile.latestStatusUrl — a profile URL or /with_replies has no
-      // reply box and would always time out.
-      const latest = (profile && profile.latestTweet) || '';
-      const targetStatus = (profile && profile.latestStatusUrl) || '';
-      const commentUrl = targetStatus
-        ? (/^https?:/i.test(targetStatus) ? targetStatus : 'https://x.com' + targetStatus)
-        : '';
+      // reply box and would always time out. latest/commentUrl/commentText
+      // were resolved above and are shared with the review draft.
       if (commentUrl && latest) {
         try {
-          const text = await (draftFn || draftOthersReplyFor)({ author, text: latest, likes: 0, lang: 'zh', url: commentUrl, source: 'x-home' });
+          const text = commentText;
           if (text) {
             const verdict = checkPost({ text, cfg: c, kind: 'othersReply', state: s });
             if (verdict.ok && !hollowQuote(text, latest)) {

@@ -64,7 +64,8 @@
     "maxFollowers": 10000,
     "maxPosts": 3,
     "maxPerPost": 8,
-    "maxNotifScrolls": 6
+    "maxNotifScrolls": 6,
+    "maxFollowersScrolls": 4
   },
   "schedule": {
     "offMinutesOnly": false,

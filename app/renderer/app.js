@@ -168,8 +168,11 @@ async function refreshStatus() {
   setText('stQuotes', t.quotesPublished ?? '—');
   setText('stReplies', t.repliesPublished ?? '—');
   setText('stFollows', t.followsPublished ?? '—');
-  setText('stFollowsSub', '今天新关注的蓝V（≤ 1 万粉丝）');
-  setText('stOthers', (t.othersRepliesPublished || 0) + (t.followBacksPublished || 0));
+  // Two different things used to share one number: follow-backs are PEOPLE we
+  // followed back, not comment-section posts. Show both, each honestly.
+  const backCount = t.followBacksPublished || 0;
+  setText('stFollowsSub', '今天新关注的蓝V（≤ 1 万粉丝），另回关 ' + backCount + ' 人');
+  setText('stOthers', t.othersRepliesPublished || 0);
   setText('stOthersSub', '今天去别人评论区留言');
   const pend = s.drafts?.pending ?? 0;
   setText('stDrafts', pend);
@@ -779,6 +782,26 @@ async function loadDrafts() {
       text.textContent = '关注 ' + who + fans + '，并去他的帖子下留一条评论';
     } else {
       text.textContent = d.text;
+    }
+    // Growth drafts promise a comment, so the reviewer needs to see BOTH the
+    // post being commented on and where the comment lands — otherwise the
+    // card asks for a judgement it gives no evidence for.
+    if (d.kind === 'growthFollow' || d.kind === 'follow') {
+      if (d.commentUrl) {
+        const cu = document.createElement('div');
+        cu.className = 'q-target';
+        const a = document.createElement('a');
+        a.href = d.commentUrl; a.target = '_blank'; a.rel = 'noreferrer';
+        a.textContent = '评论目标：' + d.commentUrl;
+        cu.appendChild(a);
+        card.appendChild(cu);
+      }
+      if (d.sourceText) {
+        const st = document.createElement('div');
+        st.className = 'q-quoted';
+        st.textContent = '他最近的帖子：' + d.sourceText;
+        card.appendChild(st);
+      }
     }
     text.title = '点击编辑';
     card.appendChild(text);

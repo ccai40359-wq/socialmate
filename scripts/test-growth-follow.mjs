@@ -236,6 +236,116 @@ check('AC-C7', 'growthFollowRound records a successful follow via remember()', a
   return pass('follow -> remember(kind=follow)');
 });
 
+// ---- AC-C18 (P0): the CLI approve path must not post a growth draft ---
+// Once the review draft carries real comment text, falling through to the
+// generic post() branch would publish the COMMENT as a standalone tweet.
+check('AC-C18', 'cli approve routes growthFollow to follow(+comment), never post()', () => {
+  const src = readFileSync('src/cli.mjs', 'utf8');
+  if (!/import \{ post, quote, reply, verify, follow \} from '\.\/xbot\.mjs'/.test(src)) return 'cli does not import follow()';
+  const i = src.indexOf('const isFollow = d.kind ===');
+  if (i < 0) return 'cli approve has no isFollow branch';
+  const seg = src.slice(i, i + 3200);
+  if (!/await follow\(page, d\.targetUrl\)/.test(seg)) return 'cli approve never follows for a growth draft';
+  if (!/mod|follow\(page, d\.targetUrl\)/.test(seg)) return 'cli approve never follows for a growth draft';
+  if (!/checkKindBudget\(\{ kind: isFollowBack \? 'followBack' : 'follow'/.test(seg)) return 'cli approve does not budget the follow';
+  if (!/await reply\(page, commentUrl, commentText\)/.test(seg)) return 'cli approve never replies to commentUrl';
+  if (!/continue;/.test(seg)) return 'cli approve does not continue past the post() branch';
+  if (!/no rollback/.test(seg)) return 'cli comment failure is not isolated from the follow (no-rollback)';
+  if (!/remember\(\{ id: 'gr'/.test(seg)) return 'cli comment success is not recorded via remember()';
+  return pass('cli: follow + comment isolated, post() branch bypassed');
+});
+
+// ---- AC-C14 (P0): an approved growth draft also lands the COMMENT -------
+// The draft shape (empty body, profile-only targetUrl) made the approval
+// path capable of follow() and nothing else, so "涨粉 = 关注 + 评论区互动"
+// silently lost half its job. These assertions pin both halves.
+check('AC-C14', 'review growth draft carries a commentable text + status URL', async () => {
+  const dir = mkdtempSync(resolve(os.tmpdir(), 'sm-follow-c14-'));
+  const seenFile = resolve(dir, 'follow-seen.json');
+  const stateFile = resolve(dir, 'state.json');
+  const draftsFile = resolve(dir, 'drafts.json');
+  const page = {
+    async goto() {},
+    async waitForTimeout() {},
+    async evaluate() {
+      return { text: '5K Followers', verified: true, latestTweet: '我在讲 AI agent 落地', latestStatusUrl: '/bluev/status/123456789' };
+    },
+    locator() { return { first: () => ({ isVisible: async () => false, click: async () => {}, innerText: async () => '@me' }) }; },
+  };
+  const cfg = {
+    autoMode: 'review',
+    features: { follow: true },
+    gate: { perKind: { followDailyMax: 30, followCooldownMinutes: 0 } },
+    growthFollow: { maxPerRound: 6, maxFollowers: 10000 },
+    myHandle: 'me',
+  };
+  const st = { draftsToday: 0, followsPublished: 0, lastFollowAt: 0, othersRepliesPublished: 0, lastOthersReplyAt: 0 };
+  await run.growthFollowRound(page, {
+    seenFile, state: st, cfg, pool: [{ author: 'bluev', verified: true, followers: 5000 }], draftsFile, stateFile, gap: [0, 0],
+    draftFn: async () => '这个点很有意思，等我也说说我的看法',
+  });
+  const drafts = JSON.parse(readFileSync(draftsFile, 'utf8'));
+  rmSync(dir, { recursive: true, force: true });
+  const d = drafts.find((x) => x.kind === 'growthFollow');
+  if (!d) return 'no growthFollow draft';
+  if (!String(d.text || '').trim()) return 'draft.text is empty: the reviewer has nothing to approve and the approval cannot comment'
+  if (!/^https?:\/\/x\.com\/.+\/status\/\d+/.test(String(d.commentUrl || ''))) return 'draft.commentUrl is not a status URL: ' + d.commentUrl;
+  if (d.commentUrl === d.targetUrl) return 'commentUrl must be the status URL, not the profile URL';
+  return pass('text="' + d.text.slice(0, 14) + '..." commentUrl=' + d.commentUrl);
+});
+
+check('AC-C15', 'growthFollowRound survives a failing comment generator (empty text, no crash)', async () => {
+  const dir = mkdtempSync(resolve(os.tmpdir(), 'sm-follow-c15-'));
+  const seenFile = resolve(dir, 'follow-seen.json');
+  const stateFile = resolve(dir, 'state.json');
+  const draftsFile = resolve(dir, 'drafts.json');
+  const page = {
+    async goto() {},
+    async waitForTimeout() {},
+    async evaluate() { return { text: '5K Followers', verified: true, latestTweet: 'hi', latestStatusUrl: '/bluev/status/1' }; },
+    locator() { return { first: () => ({ isVisible: async () => false, click: async () => {}, innerText: async () => '@me' }) }; },
+  };
+  const cfg = { autoMode: 'review', features: { follow: true }, gate: { perKind: { followDailyMax: 30, followCooldownMinutes: 0 } }, growthFollow: { maxPerRound: 6, maxFollowers: 10000 }, myHandle: 'me' };
+  const st = { draftsToday: 0, followsPublished: 0, lastFollowAt: 0, othersRepliesPublished: 0, lastOthersReplyAt: 0 };
+  let threw = '';
+  const draft = null;
+  try {
+    await run.growthFollowRound(page, { seenFile, state: st, cfg, pool: [{ author: 'bluev', verified: true, followers: 5000 }], draftsFile, stateFile, gap: [0, 0], draftFn: async () => { throw new Error('llm down'); } });
+  } catch (e) { threw = e.message; }
+  const drafts = JSON.parse(readFileSync(draftsFile, 'utf8'));
+  rmSync(dir, { recursive: true, force: true });
+  if (threw) return 'round threw on a failing generator: ' + threw;
+  // T2: a degraded generator must never produce a half-written comment. The
+  // draft may be queued without one (follow-only), but if text IS present it
+  // must be usable — never an empty string that the preview would show and a
+  // later approval would comment with.
+  const g = drafts.find((x) => x.kind === 'growthFollow');
+  if (!g) return 'draft was not queued when the generator failed';
+  if (g.text != null && typeof g.text !== 'string') return 'draft.text must be a string, got ' + typeof g.text;
+  if (String(g.text || '').trim() && !String(g.commentUrl || '').trim()) return 'draft has comment text but no commentUrl';
+  return pass('round survived a failing generator without throwing');
+});
+
+check('AC-C16', 'server approve runs the comment half for an approved growth draft', () => {
+  const src = readFileSync('src/server.mjs', 'utf8');
+  const i = src.indexOf("const commentText = String(d.text || '').trim();");
+  if (i < 0) return 'approval path never reads d.text as a comment';
+  const seg = src.slice(i, i + 2000);
+  if (!/mod\.reply\(page, commentUrl/.test(seg)) return 'approval path does not reply() to the comment target';
+  if (!/checkKindBudget\(\{ kind: 'othersReply'/.test(seg)) return 'approval comment is not budgeted as othersReply';
+  if (!/othersRepliesPublished/.test(seg)) return 'approval comment does not move the othersReply counter';
+  if (!/no rollback/.test(seg)) return 'comment failure would not be isolated from the follow';
+  return pass('approve: follow + budgeted comment + counter, no rollback');
+});
+
+check('AC-C17', 'dashboard keeps comment count and follow-back count separate', () => {
+  const src = readFileSync('app/renderer/app.js', 'utf8');
+  const m = src.match(/setText\('stOthers',([^\n]+)\)/);
+  if (!m) return 'stOthers line missing';
+  if (/followBacksPublished/.test(m[1])) return 'stOthers still adds follow-backs into the comment count: ' + m[1].trim();
+  return pass('stOthers=' + m[1].trim());
+});
+
 // AC-13: an empty growth-follow draft is never text-gated (too-short:0 trap).
 check('AC-C13', 'server approve gates growthFollow by kind budget, not checkPost on ""', () => {
   const src = readFileSync('src/server.mjs', 'utf8');

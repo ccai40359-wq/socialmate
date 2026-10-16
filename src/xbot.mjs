@@ -33,6 +33,13 @@ const SEL = {
 // enabled check must poll instead of reading aria-disabled once.
 const MEDIA_UPLOAD_TIMEOUT_MS = 120000;
 
+// X confirms a landed post with a toast ("Your post was sent."). This is the
+// only POSITIVE signal available: composer teardown is async and can lag past
+// 25s under load, and mis-reading that lag as a failure previously pushed the
+// caller into a second submit — i.e. a duplicate post. A visible "sent" toast
+// therefore always wins, and the retry path is never entered once it is seen.
+const POST_SENT_RE = /(post was sent|your post was sent|帖子已发送|已发送)/i;
+
 async function gotoHome(page) {
   if (!/\/home/.test(page.url())) {
     await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -186,6 +193,46 @@ async function composerStillHolds(page, text) {
   }, text).catch(() => false);
 }
 
+// Click a button that a stray X overlay may be covering. X's promo sheets
+// ("Try out the new article composer") drop a full-screen [data-testid="mask"]
+// over the composer. Playwright then reports "subtree intercepts pointer
+// events", the click never lands, and the caller concludes the composer still
+// holds the text — retrying and risking a duplicate post. Observed live: two
+// consecutive submits both no-op'd until the mask was dismissed by hand.
+// Recovery order: close the covering sheet via its own control; if that does
+// not work, take the mask out of the pointer path (it is decoration only).
+async function clickButtonResilient(page, locator) {
+  const isCovered = async () => {
+    const box = await locator.boundingBox().catch(() => null);
+    if (!box) return true;
+    return page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return false;
+      return !el.closest('[data-testid="tweetButton"],[data-testid="tweetButtonInline"]');
+    }, { x: box.x + box.width / 2, y: box.y + box.height / 2 }).catch(() => false);
+  };
+  if (!(await isCovered())) { await locator.click({ timeout: 10000 }); return; }
+
+  const closed = await page.evaluate(() => {
+    for (const m of document.querySelectorAll('[data-testid="mask"]')) {
+      const layer = m.parentElement;
+      if (!layer) continue;
+      const ctl = layer.querySelector('[data-testid="app-bar-close"],[aria-label="Close"]');
+      if (ctl) { try { ctl.click(); return true; } catch (_) {} }
+    }
+    return false;
+  }).catch(() => false);
+  await page.waitForTimeout(1200);
+
+  if (await isCovered()) {
+    await page.evaluate(() => {
+      for (const m of document.querySelectorAll('[data-testid="mask"]')) m.style.pointerEvents = 'none';
+    }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  await locator.click({ timeout: 10000 });
+  appendLog(`xbot: Post button was covered by an overlay (dismissed=${closed}); clicked through`);
+}
 async function submitPost(page, text, mediaPath) {
   // With media attached the dialog also owns the Post button, so scope there
   // to avoid clicking an unrelated button on the timeline behind the modal.
@@ -201,13 +248,18 @@ async function submitPost(page, text, mediaPath) {
     const disabled = await btn.getAttribute('aria-disabled');
     if (disabled === 'true') throw new Error('Post button disabled; content may be rejected or already empty');
   }
-  await btn.click({ timeout: 10000 });
+  await clickButtonResilient(page, btn);
   // Success on X means the composer CLOSES. Poll for that instead of reading the
   // state once after a fixed wait: under load the modal can still be up well past
   // 5s after a click that did land, which was logged as a lost post.
   const deadline = Date.now() + 25000;
   while (Date.now() < deadline) {
     if (!(await composerStillHolds(page, text))) return { ok: true };
+    const t = await page.locator(SEL.toast).first().innerText({ timeout: 500 }).catch(() => '');
+    if (POST_SENT_RE.test(t)) {
+      appendLog('xbot: post confirm toast seen; composer teardown lagging, treating as sent');
+      return { ok: true, toast: t };
+    }
     await page.waitForTimeout(1000);
   }
   const toast = await page.locator(SEL.toast).first().innerText({ timeout: 2000 }).catch(() => "");
@@ -253,10 +305,13 @@ async function clearComposerForMediaFail(page) {
 }
 
 // Real attachment state, read from inside the composer dialog only.
-// X renders the media preview as [data-testid="attachments"] and writes a status
-// line into it ("<file>: Uploading (56%)" / "Processing" / "Ready"). That status
-// text is the reliable readiness signal; the progress bar node is always present
-// in this build (visible even when idle), so it is NOT used as a gate.
+// X renders the media preview as [data-testid="attachments"]. While a VIDEO is
+// transcoding the status reads "Uploading (56%)" / "Processing" and ends at
+// "Ready"; an IMAGE never shows those words (its status is just the edit
+// affordances). So "Ready" is a positive signal but NOT a requirement — the
+// portable readiness criterion is: preview present, no in-flight wording, and
+// the Post button enabled. The progress bar node is always present in this
+// build (visible even when idle), so it is NOT used as a gate.
 async function mediaState(page) {
   const dialog = composerDialog(page);
   const idle = { attached: false, ready: false, working: false, disabled: 'true', status: '' };
@@ -294,18 +349,23 @@ async function attachMediaIfNeeded(page, mediaPath) {
   }
 }
 
-// Poll until the upload has fully settled: media attached, status reads "Ready"
-// (no longer "Uploading"/"Processing"), and the Post button is enabled. Video
-// transcoding can take ~30s-2min, so never click Post while still pending.
+// Poll until the upload has settled: the preview is present, no in-flight
+// wording remains ("Uploading"/"Processing"), and the Post button is enabled.
+// The condition must hold twice in a row so a transient blob-preview moment
+// cannot be mistaken for a finished upload. Video transcoding can take
+// ~30s-2min, so never click Post while anything is still pending.
 async function waitForMediaReady(page) {
   const deadline = Date.now() + MEDIA_UPLOAD_TIMEOUT_MS;
   let last = null;
+  let streak = 0;
   while (Date.now() < deadline) {
     last = await mediaState(page);
-    if (last.attached && last.ready && !last.working && last.disabled !== 'true') return;
+    const settled = last.attached && !last.working && last.disabled !== 'true';
+    streak = settled ? streak + 1 : 0;
+    if (streak >= 2) return;
     await page.waitForTimeout(1000);
   }
-  throw new Error('media upload timeout: media never reached Ready (' + JSON.stringify(last) + ')');
+  throw new Error('media upload timeout: media never settled (' + JSON.stringify(last) + ')');
 }
 
 // Submit, recovering from X's own error page. Safe against double-posting: a

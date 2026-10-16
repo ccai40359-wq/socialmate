@@ -3,7 +3,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { connect, workPage, closeBrowser } from './edge.mjs';
-import { post, quote, reply, verify } from './xbot.mjs';
+import { post, quote, reply, verify, follow } from './xbot.mjs';
 import { buildPost, buildQuoteComment, xOriginalOf } from './planner.mjs';
 import { scanReplies, draftReplyFor, selectOthersReplyCandidates, draftOthersReplyFor } from './replies.mjs';
 import { loadConfig, aihotGet } from './aihot.mjs';
@@ -122,6 +122,61 @@ if (cmd === 'status') {
       try {
         // Approval is an explicit human act, so it publishes. But the text may
         // have been edited since it was queued, so re-run the gate first.
+        // A growth-follow draft is a FOLLOW plus a COMMENT, not a post, and
+        // its text may be legitimately empty (follow-only target). Gating it
+        // with checkPost('') would die as too-short:0, and — now that the
+        // draft carries real comment text — falling through to post() would
+        // publish the comment as a standalone tweet. Both are wrong, so this
+        // kind is budgeted as a follow and then replies to commentUrl.
+        const isFollowBack = d.lane === 'followBack' || d.kind === 'followBack';
+        const isFollow = d.kind === 'follow' || d.kind === 'growthFollow' || isFollowBack;
+        if (isFollow) {
+          // The lane can be switched off between enqueue and approval, exactly
+          // like server.mjs re-checks it. Approving a draft must not be a
+          // backdoor around the feature switch.
+          const laneOff = isFollowBack
+            ? (cfg.features && cfg.features.followBack === false)
+            : (cfg.features && cfg.features.follow === false);
+          if (laneOff) { console.log(`draft #${d.id} blocked: features.${isFollowBack ? 'followBack' : 'follow'}=false`); continue; }
+          const budget = checkKindBudget({ kind: isFollowBack ? 'followBack' : 'follow', state, cfg });
+          if (!budget.ok) { console.log(`draft #${d.id} blocked by gate: ${budget.reasons.join(',')}`); continue; }
+          const fr = await follow(page, d.targetUrl);
+          if (!fr || fr.ok !== true) { console.log(`draft #${d.id} follow failed: ${(fr && fr.reason) || 'failed'}`); continue; }
+          if (isFollowBack) { state.followBacksPublished = (state.followBacksPublished || 0) + 1; state.lastFollowBackAt = Date.now(); }
+          else { state.followsPublished = (state.followsPublished || 0) + 1; state.lastFollowAt = Date.now(); }
+          try { saveJson(resolve(cfg.stateFile || 'state.json'), state); } catch (e) { appendLog('state: write failed ' + e.message); }
+          // The comment half. Same gates as the auto path; a comment failure
+          // never rolls back the follow that already landed.
+          const commentText = String(d.text || '').trim();
+          const commentUrl = String(d.commentUrl || '').trim();
+          if (commentText && commentUrl) {
+            const cBudget = checkKindBudget({ kind: 'othersReply', state, cfg });
+            const cVerdict = cBudget.ok ? checkPost({ text: commentText, cfg, kind: 'othersReply', state }) : cBudget;
+            const isHollow = hollowQuote(commentText, d.sourceText || '');
+            if (cVerdict.ok && !isHollow) {
+              // The comment is its own write, and its failure must not undo the
+              // follow that already landed: without this catch a reply() throw
+              // would skip removeDraft() below and leave the draft queued, so
+              // approving it again would follow the same account twice.
+              try {
+                await reply(page, commentUrl, commentText);
+                state.othersRepliesPublished = (state.othersRepliesPublished || 0) + 1;
+                state.lastOthersReplyAt = Date.now();
+                try { saveJson(resolve(cfg.stateFile || 'state.json'), state); } catch (e) { appendLog('state: write failed ' + e.message); }
+                try { remember({ id: 'gr' + d.id, text: commentText, kind: 'othersReply', url: commentUrl }); } catch (e) { appendLog('comment remember failed: ' + e.message); }
+              } catch (e) {
+                console.log(`draft #${d.id} comment failed (no rollback): ${e.message}`);
+              }
+            } else {
+              console.log(`draft #${d.id} comment skipped by gate: ${(cVerdict.reasons || []).join(',')}${isHollow ? ',hollow' : ''}`);
+            }
+          }
+          removeDraft(d.id);
+          remember({ id: (isFollowBack ? 'fb' : 'f') + (d.author || d.id), text: (isFollowBack ? '回关了 @' : '关注了 @') + (d.author || ''), kind: (isFollowBack ? 'followBack' : 'follow'), url: d.targetUrl });
+          console.log(`published draft #${d.id} (${isFollowBack ? 'followBack' : 'follow'})`);
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
         const verdict = checkPost({ text: d.text, cfg, kind: d.kind, state });
         if (!verdict.ok) { console.log(`draft #${d.id} blocked by gate: ${verdict.reasons.join(',')}`); continue; }
         if (d.kind === 'reply') await reply(page, d.targetUrl, d.text);

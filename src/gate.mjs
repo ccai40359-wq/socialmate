@@ -145,15 +145,24 @@ export function hollowQuote(comment, originalText) {
   const toks = (s) => {
     const out = new Set();
     const t = (s || '').toLowerCase();
-    // Latin/digit words: split on non-alphanumerics.
+    // Split on non-alphanumerics first, then split EACH token into script
+    // runs. A whitespace token can still mix scripts ("token吧", "带tag流量"),
+    // and treating that whole string as one unit made it unmatchable: a Chinese
+    // comment that merely contained an English word or a number was then judged
+    // hollow and silently dropped. Runs are compared on the axis that makes
+    // sense for their script.
+    const RUN = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+|[^\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+/g;
+    const CJK_RUN = /^[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
     for (const w of t.split(/[^\p{L}\p{N}]+/u)) {
       if (!w) continue;
-      if (/^[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+$/.test(w)) {
-        // CJK has no spaces: use characters, dropping high-frequency function
-        // characters so overlap reflects content, not grammar.
-        for (const ch of w) if (!CJK_STOP.has(ch)) out.add(ch);
-      } else {
-        out.add(w);
+      for (const run of w.match(RUN) || []) {
+        if (CJK_RUN.test(run)) {
+          // CJK has no spaces: use characters, dropping high-frequency function
+          // characters so overlap reflects content, not grammar.
+          for (const ch of run) if (!CJK_STOP.has(ch)) out.add(ch);
+        } else {
+          out.add(run);
+        }
       }
     }
     return out;

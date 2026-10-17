@@ -375,6 +375,23 @@ check('T5-d', 'Latin-script hollow detection still works', () => {
   return true;
 });
 
+check('T5-d', 'mixed-script Chinese comment is NOT hollow', () => {
+  // Regression (2026-10-17, found live): the tokenizer only split on
+  // non-alphanumerics, so a whitespace token that MIXED scripts ("token吧",
+  // "带tag流量") became one unmatchable unit. Any Chinese comment containing an
+  // English word or a number then scored zero overlap and was rejected as
+  // hollow, which silently killed the comment half of the growth lane.
+  const cases = [
+    ['随礼就随个token吧🤣', '兄弟有喜事了，要随礼吗。'],
+    ['还真是，带tag流量就是猛😆', '说个暴论 带浇、蓝v等tag 流量确实要比一般的高'],
+    ['2人3天变半天，老板秒懂🤣', '跟企业老板聊AI，千万别上来讲Agent、模型、智能体。'],
+  ];
+  for (const [c, o] of cases) {
+    if (gate.hollowQuote(c, o) !== false) return 'mixed-script comment rejected as hollow: ' + c;
+  }
+  return true;
+});
+
 // ---- T1-b regression: language detection must not collapse ja/ko into zh ---
 check('T1-b', 'detectLang distinguishes ja / ko from zh', async () => {
   const { detectLang } = await import('../src/perceive/lang.mjs');

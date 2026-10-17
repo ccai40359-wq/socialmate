@@ -917,7 +917,7 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
       try {
         await page.goto('https://x.com/' + encodeURIComponent(author), { waitUntil: 'domcontentloaded', timeout: 45000 });
         await page.waitForTimeout(3500);
-        profile = await page.evaluate(() => {
+        const readProfile = () => page.evaluate(() => {
           const el = document.querySelector('a[href$="/verified_followers"], a[href$="/followers"]');
           const text = el ? el.innerText : '';
           const verified = !!document.querySelector('[data-testid="icon-verified"]');
@@ -943,6 +943,21 @@ export async function growthFollowRound(page, { seenFile: seenFollowOpt, state: 
           return { text, verified, latestTweet, latestStatusUrl, isFollowing };
 
         });
+        profile = await readProfile();
+        // Profile timelines are lazy: on a cold load X frequently renders
+        // ZERO <article> nodes until the page scrolls, so the fixed wait
+        // above alone reads an empty timeline and the follow-back draft
+        // silently loses its comment target (latest/commentUrl both empty).
+        // Nudge the page and poll for the first article before giving up.
+        // Best-effort: an account with genuinely no posts must still be
+        // followable, so a miss here degrades to a follow-only draft.
+        if (profile && !profile.latestStatusUrl) {
+          for (let attempt = 0; attempt < 3 && !(profile && profile.latestStatusUrl); attempt++) {
+            try { await page.mouse.wheel(0, 500); } catch {}
+            await page.waitForTimeout(1500);
+            try { profile = await readProfile(); } catch { break; }
+          }
+        }
         verifiedOk = profile.verified;
         if (profile.text) followers = parseFollowerCount(profile.text);
       } catch (e) {
